@@ -28,7 +28,7 @@ class QboApi
   PAYMENTS_API_BASE_URL      = 'https://sandbox.api.intuit.com/quickbooks/v4/payments'
   APP_CONNECTION_URL         = APP_CENTER_BASE + '/api/v1/connection'
 
-  def initialize(token:, token_secret:, realm_id:, consumer_key: CONSUMER_KEY, 
+  def initialize(token:, token_secret:, realm_id:, consumer_key: CONSUMER_KEY,
                  consumer_secret: CONSUMER_SECRET, endpoint: :accounting)
     @consumer_key = consumer_key
     @consumer_secret = consumer_secret
@@ -38,11 +38,12 @@ class QboApi
     @endpoint = endpoint
   end
 
-  def connection(url: get_endpoint)
+  def connection(url: get_endpoint, multipart: false)
     Faraday.new(url: url) do |faraday|
-      faraday.headers['Content-Type'] = 'application/json;charset=UTF-8'
+      faraday.headers['Content-Type'] = 'application/json;charset=UTF-8' unless multipart
       faraday.headers['Accept'] = "application/json"
-      faraday.request :oauth, oauth_data 
+      faraday.request :oauth, oauth_data
+      faraday.request :multipart if multipart
       faraday.request :url_encoded
       faraday.use FaradayMiddleware::RaiseHttpException
       faraday.response :detailed_logger, QboApi.logger if QboApi.log
@@ -68,6 +69,10 @@ class QboApi
   def update(entity, id:, payload:, params: nil)
     payload.merge!(set_update(entity, id))
     request(:post, entity: entity, path: entity_path(entity), payload: payload, params: params)
+  end
+
+  def upload(entity, payload:, params: nil)
+    request(:post, entity: entity, path: entity_path(entity), payload: payload, params: params, multipart: true)
   end
 
   def delete(entity, id:)
@@ -109,15 +114,15 @@ class QboApi
     end while (results ? results.size == max : false)
   end
 
-  def request(method, path:, entity: nil, payload: nil, params: nil)
-    raw_response = connection.send(method) do |req|
+  def request(method, path:, entity: nil, payload: nil, params: nil, multipart: false)
+    raw_response = connection(multipart: multipart).send(method) do |req|
       path = finalize_path(path, method: method, params: params)
       case method
       when :get, :delete
         req.url path
       when :post, :put
         req.url path
-        req.body = JSON.generate(payload)
+        req.body = multipart ? payload : JSON.generate(payload)
       end
     end
     response(raw_response, entity: entity)
